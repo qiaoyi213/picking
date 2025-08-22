@@ -8,10 +8,11 @@
 
 EXE = main
 IMGUI_DIR = ./imgui
+BUILD_DIR = build
 SOURCES = main.mm
 SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_metal.mm
-OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+OBJS = $(patsubst %,$(BUILD_DIR)/%,$(addsuffix .o,$(basename $(notdir $(SOURCES)))))
 
 LIBS = -framework Metal -framework MetalKit -framework Cocoa -framework IOKit -framework CoreVideo -framework QuartzCore
 LIBS += -L/usr/local/lib -L/opt/homebrew/lib -L/opt/local/lib
@@ -21,27 +22,27 @@ CXXFLAGS = -std=c++17 -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I/usr/local/includ
 CXXFLAGS += -Wall -Wformat
 CFLAGS = $(CXXFLAGS)
 
-%.o:%.cpp
+
+$(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-%.o:$(IMGUI_DIR)/%.cpp
+$(BUILD_DIR)/%.o: $(IMGUI_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-%.o:$(IMGUI_DIR)/backends/%.cpp
+$(BUILD_DIR)/%.o: $(IMGUI_DIR)/backends/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-%.o:%.mm
+$(BUILD_DIR)/%.o: %.mm | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -ObjC++ -fobjc-weak -fobjc-arc -c -o $@ $<
 
-%.o:$(IMGUI_DIR)/backends/%.mm
+$(BUILD_DIR)/%.o: $(IMGUI_DIR)/backends/%.mm | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -ObjC++ -fobjc-weak -fobjc-arc -c -o $@ $<
 
-all: $(EXE)
+all: $(BUILD_DIR)/$(EXE)
 	@echo Build complete
 
-$(EXE): $(OBJS)
+$(BUILD_DIR)/$(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
 
 clean:
-	rm -f $(EXE) $(OBJS)
-
+	rm -rf $(BUILD_DIR)
