@@ -33,7 +33,7 @@ struct ImageItem {
 
 static std::vector<ImageItem> g_images;
 static int g_currentIndex = 0;
-static std::ofstream g_labelFile;
+
 
 // 載入 JPG 成 Metal Texture (這裡要用 CoreGraphics/UIImage)
 id<MTLTexture> LoadTextureFromFile(id<MTLDevice> device, const std::string& filename) {
@@ -126,6 +126,35 @@ bool SetFinderTags(const std::string& path, const std::vector<std::string>& tags
     return true;
 }
 
+std::string browse_folder() {
+    std::string path = "";
+    @autoreleasepool {
+        // 初始化 App
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [NSApp activateIgnoringOtherApps:YES];
+
+        // 建立一個 NSOpenPanel
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        [panel setCanChooseFiles:NO];           // 不允許選檔案
+        [panel setCanChooseDirectories:YES];    // 允許選資料夾
+        [panel setAllowsMultipleSelection:NO];  // 只選一個資料夾
+        [panel setPrompt:@"選擇"];
+        
+        // 顯示對話框
+        if ([panel runModal] == NSModalResponseOK) {
+            NSURL* url = [[panel URLs] firstObject];
+            if (url) {
+                printf("選到的資料夾: %s\n", [url fileSystemRepresentation]);
+                path = [url fileSystemRepresentation];
+            }
+        } else {
+            printf("使用者取消選擇\n");
+        }
+    }
+    return path;
+}
+
 int main(int, char**)
 {
     // Setup Dear ImGui context
@@ -183,10 +212,11 @@ int main(int, char**)
     MTLRenderPassDescriptor *renderPassDescriptor = [MTLRenderPassDescriptor new];
 
     // Our state
-    bool show_another_window = false;
     float clear_color[4] = {0.45f, 0.55f, 0.60f, 1.00f};
-    LoadAllImages(device, "./JPG");
-    g_labelFile.open("labels.csv", std::ios::out);
+    std::string dir = browse_folder();
+
+    LoadAllImages(device, dir);
+    
 
     
     // Main loop
@@ -299,17 +329,6 @@ int main(int, char**)
 
                 ImGui::End();
 
-            }
-
-
-            // 3. Show another simple window.
-            if (show_another_window)
-            {
-                ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-                ImGui::Text("Hello from another window!");
-                if (ImGui::Button("Close Me"))
-                    show_another_window = false;
-                ImGui::End();
             }
 
             // Rendering
