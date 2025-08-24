@@ -226,7 +226,9 @@ std::string browse_folder() {
     return path;
 }
 
-
+bool comparison(ImageItem i1, ImageItem i2) {
+    return i1.path < i2.path;
+}
 int main(int, char**)
 {
     // Setup Dear ImGui context
@@ -288,7 +290,7 @@ int main(int, char**)
     std::string dir = browse_folder();
 
     LoadAllImages(device, dir);
-    
+    sort(g_images.begin(), g_images.end(), comparison);
 
     
     // Main loop
