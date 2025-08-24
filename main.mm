@@ -2,6 +2,8 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_metal.h"
 
+#include <libexif/exif-data.h>
+
 #include <stdio.h>
 #include <filesystem>
 #include <vector>
@@ -28,12 +30,79 @@ const std::string FINDER_INFO_TAG = "com.apple.FinderInfo";
 struct ImageItem {
     std::string path;
     bool isLoaded;
+    id<MTLTexture> thumbnail;
     id<MTLTexture> texture;
 };
 
 static std::vector<ImageItem> g_images;
 static int g_currentIndex = 0;
 
+
+
+id<MTLTexture> LoadExifThumbnailAsTexture(std::string path, id<MTLDevice> device) {
+    // Step 1: 讀取 Exif
+    ExifData *exifData = exif_data_new_from_file(path.c_str());
+    if (!exifData) {
+        NSLog(@"No EXIF data found in file: %s", path.c_str());
+        return nil;
+    }
+
+    if (exifData->size <= 0 || !exifData->data) {
+        NSLog(@"No EXIF thumbnail found in file: %s", path.c_str());
+        exif_data_unref(exifData);
+        return nil;
+    }
+
+    // Step 2: 把 Exif thumbnail 轉 NSData
+    NSData *thumbData = [NSData dataWithBytes:exifData->data length:exifData->size];
+    exif_data_unref(exifData);
+
+    // Step 3: 用 NSData 生成 NSImage
+    NSImage *nsImage = [[NSImage alloc] initWithData:thumbData];
+    if (!nsImage) {
+        NSLog(@"Failed to create NSImage from thumbnail data.");
+        return nil;
+    }
+
+    // Step 4: 轉 CGImage
+    CGImageRef cgRef = [nsImage CGImageForProposedRect:NULL context:NULL hints:nil];
+    if (!cgRef) {
+        NSLog(@"Failed to get CGImage from NSImage.");
+        return nil;
+    }
+
+    size_t width  = CGImageGetWidth(cgRef);
+    size_t height = CGImageGetHeight(cgRef);
+
+    // Step 5: 建立 Metal Texture
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                    width:(NSUInteger)width
+                                                                                   height:(NSUInteger)height
+                                                                                mipmapped:NO];
+    id<MTLTexture> texture = [device newTextureWithDescriptor:desc];
+    if (!texture) {
+        NSLog(@"Failed to create Metal texture.");
+        return nil;
+    }
+
+    CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8, width*4,
+                                                 CGColorSpaceCreateDeviceRGB(),
+                                                 kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    if (!context) {
+        NSLog(@"Failed to create CGContext.");
+        return nil;
+    }
+
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgRef);
+    void *data = CGBitmapContextGetData(context);
+
+    MTLRegion region = {{0,0,0}, { (NSUInteger)width, (NSUInteger)height, 1 }};
+    [texture replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:width*4];
+
+    CGContextRelease(context);
+
+    return texture;
+}
 
 // 載入 JPG 成 Metal Texture (這裡要用 CoreGraphics/UIImage)
 id<MTLTexture> LoadTextureFromFile(id<MTLDevice> device, const std::string& filename) {
@@ -75,8 +144,10 @@ void LoadAllImages(id<MTLDevice> device, const std::string& folder) {
                 item.path = entry.path().string();
                 std::cout<<"GET"<<std::endl;
                 item.isLoaded = false;
+                item.thumbnail = LoadExifThumbnailAsTexture(item.path, device);
                 g_images.push_back(item);
-
+                
+                
                 // item.texture = LoadTextureFromFile(device, item.path);
                 /*
                 if (item.texture) {
@@ -154,6 +225,7 @@ std::string browse_folder() {
     }
     return path;
 }
+
 
 int main(int, char**)
 {
@@ -330,7 +402,44 @@ int main(int, char**)
                 ImGui::End();
 
             }
+            {
+                ImGui::Begin("Quick Look");
+                
+                
+                float thumbnailSize = 64.0f; // 縮圖尺寸
+                float padding = 5.0f;        // 縮圖間距
+                int count = 0;
+                                
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
+                for (int i = 0; i < g_images.size(); i++) {
+                    auto& img = g_images[i];
+                    if (!img.thumbnail) continue;
+
+                    ImVec2 pos = ImGui::GetCursorScreenPos(); // 縮圖左上角
+                    ImGui::Image((ImTextureID)img.thumbnail, ImVec2(thumbnailSize, thumbnailSize));
+
+                    // 點擊選中
+                    if (ImGui::IsItemClicked()) {
+                        g_currentIndex = i;
+                    }
+
+                    // 如果是當前選中的圖，畫外框
+                    if (i == g_currentIndex) {
+                        draw_list->AddRect(
+                            pos,
+                            ImVec2(pos.x + thumbnailSize, pos.y + thumbnailSize),
+                            IM_COL32(255, 0, 0, 255),  // 紅色
+                            0.0f,                       // 圓角
+                            0,                          // 角類型
+                            3.0f                        // 線寬
+                        );
+                    }
+
+                    ImGui::SameLine(0.0f, padding);
+                }
+                ImGui::End();
+            }
             // Rendering
             ImGui::Render();
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
@@ -342,7 +451,7 @@ int main(int, char**)
             [commandBuffer commit];
         }
     }
-
+    
     // Cleanup
     ImGui_ImplMetal_Shutdown();
     ImGui_ImplGlfw_Shutdown();

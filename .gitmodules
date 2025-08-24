@@ -1,3 +1,6 @@
 [submodule "imgui"]
 	path = imgui
 	url = git@github.com:ocornut/imgui.git
+[submodule "libexif"]
+	path = libexif
+	url = git@github.com:libexif/libexif.git

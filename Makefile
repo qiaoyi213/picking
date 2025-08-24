@@ -18,7 +18,7 @@ LIBS = -framework Metal -framework MetalKit -framework Cocoa -framework IOKit -f
 LIBS += -L/usr/local/lib -L/opt/homebrew/lib -L/opt/local/lib
 LIBS += -lglfw
 
-CXXFLAGS = -std=c++17 -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I/usr/local/include -I/opt/homebrew/include -I/opt/local/include
+CXXFLAGS = -std=c++17 -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I/usr/local/include -I/opt/homebrew/include -I/opt/local/include -L/usr/local/lib -lexif
 CXXFLAGS += -Wall -Wformat
 CFLAGS = $(CXXFLAGS)
 
