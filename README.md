@@ -1,9 +1,9 @@
 # Pic Kíng
-A tool that helps you mark a batch of pictures.
 
-# How to use
+**Pic Kíng** is a lightweight desktop tool designed to help you quickly browse images and assign tags.  
+It is especially useful for organizing large image collections, preparing datasets, or managing creative projects.
 
-```
-make & ./main
-```
+# Requirement
+**Pic Kíng** is only support macOS now.
+
 

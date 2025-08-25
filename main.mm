@@ -10,7 +10,7 @@
 #include <string>
 #include <fstream>
 #include <iostream>
-
+#include <map>
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3.h>
@@ -24,20 +24,17 @@
 
 const std::string FINDER_INFO_TAG = "com.apple.FinderInfo";
 
-
-
 // 簡單的圖片包裝
 struct ImageItem {
     std::string path;
     bool isLoaded;
     id<MTLTexture> thumbnail;
     id<MTLTexture> texture;
+    ExifData exifData;
 };
 
 static std::vector<ImageItem> g_images;
 static int g_currentIndex = 0;
-
-
 
 id<MTLTexture> LoadExifThumbnailAsTexture(std::string path, id<MTLDevice> device) {
     // Step 1: 讀取 Exif
@@ -145,6 +142,7 @@ void LoadAllImages(id<MTLDevice> device, const std::string& folder) {
                 std::cout<<"GET"<<std::endl;
                 item.isLoaded = false;
                 item.thumbnail = LoadExifThumbnailAsTexture(item.path, device);
+
                 g_images.push_back(item);
                 
                 
@@ -163,6 +161,42 @@ void LoadAllImages(id<MTLDevice> device, const std::string& folder) {
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+}
+
+NSArray<NSString *> *GetFileTags(NSString *path) {
+    const char *filePath = [path fileSystemRepresentation];
+    const char *attrName = "com.apple.metadata:_kMDItemUserTags";
+
+    // Step 1: 先問需要多少 buffer
+    ssize_t size = getxattr(filePath, attrName, NULL, 0, 0, 0);
+    if (size <= 0) {
+        return nil; // 沒有標籤或錯誤
+    }
+
+    // Step 2: 配置 buffer
+    void *buffer = malloc(size);
+    if (!buffer) return nil;
+
+    ssize_t result = getxattr(filePath, attrName, buffer, size, 0, 0);
+    if (result < 0) {
+        free(buffer);
+        return nil;
+    }
+
+    // Step 3: 將 binary plist 轉成 NSArray
+    NSData *data = [NSData dataWithBytes:buffer length:size];
+    free(buffer);
+
+    NSError *error = nil;
+    id plist = [NSPropertyListSerialization propertyListWithData:data
+                                                         options:NSPropertyListImmutable
+                                                          format:nil
+                                                           error:&error];
+    if (error || ![plist isKindOfClass:[NSArray class]]) {
+        return nil;
+    }
+
+    return (NSArray<NSString *> *)plist;
 }
 
 bool SetFinderTags(const std::string& path, const std::vector<std::string>& tags) {
@@ -396,7 +430,14 @@ int main(int, char**)
                         }
                         g_currentIndex = (g_currentIndex+1) % g_images.size();
                     }
-
+                    if (ImGui::IsKeyPressed(ImGuiKey_7)) {
+                        std::vector<std::string> tags = {"7"};
+                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
+                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
+                            std::cout << "Tags set successfully!\n";
+                        }
+                        g_currentIndex = (g_currentIndex+1) % g_images.size();
+                    }
                 } else {
                     ImGui::Text("No images found in ./images");
                 }
@@ -410,7 +451,7 @@ int main(int, char**)
                 
                 float thumbnailSize = 64.0f; // 縮圖尺寸
                 float padding = 5.0f;        // 縮圖間距
-                int count = 0;
+                
                                 
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -440,6 +481,60 @@ int main(int, char**)
 
                     ImGui::SameLine(0.0f, padding);
                 }
+                ImGui::End();
+            }
+
+            {
+                ImGui::Begin("Description");
+                auto& img = g_images[g_currentIndex];
+                ExifData* exif = exif_data_new_from_file(img.path.c_str());
+                if (exif)
+                {
+                    ImGui::SeparatorText("EXIF Metadata");
+
+                    for (int i = 0; i < EXIF_IFD_COUNT; i++)
+                    {
+                        ExifContent* content = exif->ifd[i];
+                        if (!content) continue;
+
+                        for (unsigned int j = 0; j < content->count; j++)
+                        {
+                            ExifEntry* entry = content->entries[j];
+                            if (!entry) continue;
+
+                            char value[1024];
+                            exif_entry_get_value(entry, value, sizeof(value));
+                            if (*value)
+                            {
+                                ImGui::Text("%s: %s",
+                                    exif_tag_get_name_in_ifd(entry->tag, exif_entry_get_ifd(entry)),
+                                    value);
+                            }
+                        }
+                    }
+                    exif_data_unref(exif);
+                }
+                else
+                {
+                    ImGui::Text("No EXIF data found.");
+                }
+                ImGui::SeparatorText("Finder Tags");
+
+                NSString* nsPath = [NSString stringWithUTF8String:img.path.c_str()];
+                NSArray<NSString *>* tags = GetFileTags(nsPath);
+
+                if (tags && [tags count] > 0)
+                {
+                    for (NSString* tag in tags)
+                    {
+                        ImGui::BulletText("%s", [tag UTF8String]);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("No Finder tags.");
+                }
+                
                 ImGui::End();
             }
             // Rendering
