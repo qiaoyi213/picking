@@ -34,6 +34,7 @@ struct ImageItem {
 };
 
 static std::vector<ImageItem> g_images;
+static std::map<std::string, std::string> keyTagMappings;
 static int g_currentIndex = 0;
 
 id<MTLTexture> LoadExifThumbnailAsTexture(std::string path, id<MTLDevice> device) {
@@ -535,6 +536,44 @@ int main(int, char**)
                     ImGui::Text("No Finder tags.");
                 }
                 
+                ImGui::End();
+            }
+            {
+                ImGui::Begin("Key → Tag Mapping");
+
+                // --- Existing Mappings ---
+                ImGui::Text("Current Mappings:");
+                ImGui::Separator();
+
+                int idx = 0;
+                for (auto it = keyTagMappings.begin(); it != keyTagMappings.end();) {
+                    ImGui::Text("[%s] → %s", it->first.c_str(), it->second.c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(("Delete##" + std::to_string(idx)).c_str())) {
+                        it = keyTagMappings.erase(it);  // 刪除後 iterator 自動移到下一個
+                    } else {
+                        ++it;
+                    }
+                    idx++;
+                }
+
+                ImGui::Separator();
+
+                // --- Add New Mapping ---
+                static char keyBuf[32] = "";
+                static char tagBuf[128] = "";
+
+                ImGui::InputText("Key", keyBuf, IM_ARRAYSIZE(keyBuf));
+                ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
+
+                if (ImGui::Button("Add Mapping")) {
+                    if (strlen(keyBuf) > 0 && strlen(tagBuf) > 0) {
+                        keyTagMappings[keyBuf] = tagBuf; // 直接新增或覆蓋
+                        keyBuf[0] = '\0';
+                        tagBuf[0] = '\0';
+                    }
+                }
+
                 ImGui::End();
             }
             // Rendering
