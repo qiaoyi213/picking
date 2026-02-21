@@ -375,8 +375,8 @@ int main(int, char**)
                     ImVec2 avail = ImGui::GetContentRegionAvail();
                     float scale = std::min(avail.x/img.texture.width, avail.y/img.texture.height);
                     ImGui::Image((ImTextureID)img.texture, ImVec2(img.texture.width*scale, img.texture.height*scale));
+                    // 當鍵盤有操作時，去查詢 Mapping 是否存在鍵位，並執行對應操作
 
-                    // std::cout<<avail.x<<std::endl;
                     // 鍵盤操作
                     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
                         g_currentIndex = (g_currentIndex > 0) ? g_currentIndex - 1 : g_images.size()-1;
@@ -444,8 +444,7 @@ int main(int, char**)
             }
             {
                 ImGui::Begin("Quick Look");
-                
-                
+                ImGui::BeginChild("ScrollableRegion", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar) ;
                 float thumbnailSize = 64.0f; // 縮圖尺寸
                 float padding = 5.0f;        // 縮圖間距
                                 
@@ -456,7 +455,9 @@ int main(int, char**)
                     if (!img.thumbnail) continue;
 
                     ImVec2 pos = ImGui::GetCursorScreenPos(); // 縮圖左上角
-                    ImGui::Image((ImTextureID)img.thumbnail, ImVec2(thumbnailSize, thumbnailSize));
+                    // 計算縮圖縮放比例
+                    float scale = std::min(thumbnailSize/img.thumbnail.width, thumbnailSize/img.thumbnail.height);
+                    ImGui::Image((ImTextureID)img.thumbnail, ImVec2(img.thumbnail.width*scale, img.thumbnail.height*scale));
 
                     // 點擊選中
                     if (ImGui::IsItemClicked()) {
@@ -477,6 +478,8 @@ int main(int, char**)
 
                     ImGui::SameLine(0.0f, padding);
                 }
+                ImGui::Dummy(ImVec2(200, 40));
+                ImGui::EndChild();
                 ImGui::End();
             }
             {
