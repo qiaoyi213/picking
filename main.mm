@@ -369,11 +369,14 @@ int main(int, char**)
                         img.texture = LoadTextureFromFile(device, img.path);
                         img.isLoaded = true;
                     }
-
+                    
+                    // 計算圖片大小與縮放比例，使得照片可以在 avail 範圍內正常顯示 
                     ImGui::Text("File: %s", img.path.c_str());
                     ImVec2 avail = ImGui::GetContentRegionAvail();
-                    ImGui::Image((ImTextureID)img.texture, avail);
+                    float scale = std::min(avail.x/img.texture.width, avail.y/img.texture.height);
+                    ImGui::Image((ImTextureID)img.texture, ImVec2(img.texture.width*scale, img.texture.height*scale));
 
+                    // std::cout<<avail.x<<std::endl;
                     // 鍵盤操作
                     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
                         g_currentIndex = (g_currentIndex > 0) ? g_currentIndex - 1 : g_images.size()-1;
@@ -445,7 +448,6 @@ int main(int, char**)
                 
                 float thumbnailSize = 64.0f; // 縮圖尺寸
                 float padding = 5.0f;        // 縮圖間距
-                int count = 0;
                                 
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -565,6 +567,14 @@ int main(int, char**)
                         tagBuf[0] = '\0';
                     }
                 }
+
+                ImGui::End();
+            }
+            {
+                ImGui::Begin("PicKing");
+
+                ImGui::Text("Current Mappings:");
+
 
                 ImGui::End();
             }
