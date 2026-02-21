@@ -1,7 +1,9 @@
-# Tauri + SvelteKit + TypeScript
+# Pic Kíng
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+**Pic Kíng** is a lightweight desktop tool designed to help you quickly browse images and assign tags.  
+It is especially useful for organizing large image collections, preparing datasets, or managing creative projects.
 
-## Recommended IDE Setup
+# Requirement
+**Pic Kíng** is only support macOS now.
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+
