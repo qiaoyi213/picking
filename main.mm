@@ -10,7 +10,7 @@
 #include <string>
 #include <fstream>
 #include <iostream>
-
+#include <map>
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3.h>
@@ -165,7 +165,41 @@ static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
+NSArray<NSString *> *GetFileTags(NSString *path) {
+    const char *filePath = [path fileSystemRepresentation];
+    const char *attrName = "com.apple.metadata:_kMDItemUserTags";
 
+    // Step 1: 先問需要多少 buffer
+    ssize_t size = getxattr(filePath, attrName, NULL, 0, 0, 0);
+    if (size <= 0) {
+        return nil; // 沒有標籤或錯誤
+    }
+
+    // Step 2: 配置 buffer
+    void *buffer = malloc(size);
+    if (!buffer) return nil;
+
+    ssize_t result = getxattr(filePath, attrName, buffer, size, 0, 0);
+    if (result < 0) {
+        free(buffer);
+        return nil;
+    }
+
+    // Step 3: 將 binary plist 轉成 NSArray
+    NSData *data = [NSData dataWithBytes:buffer length:size];
+    free(buffer);
+
+    NSError *error = nil;
+    id plist = [NSPropertyListSerialization propertyListWithData:data
+                                                         options:NSPropertyListImmutable
+                                                          format:nil
+                                                           error:&error];
+    if (error || ![plist isKindOfClass:[NSArray class]]) {
+        return nil;
+    }
+
+    return (NSArray<NSString *> *)plist;
+}
 bool SetFinderTags(const std::string& path, const std::vector<std::string>& tags) {
     @autoreleasepool {
         NSMutableArray *nsTags = [NSMutableArray array];
@@ -443,8 +477,6 @@ int main(int, char**)
                 }
                 ImGui::End();
             }
-<<<<<<< HEAD
-
             {
                 ImGui::Begin("Description");
                 auto& img = g_images[g_currentIndex];
@@ -536,8 +568,6 @@ int main(int, char**)
 
                 ImGui::End();
             }
-=======
->>>>>>> parent of d8d521a (feat: show exif and tags)
             // Rendering
             ImGui::Render();
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
@@ -560,3 +590,4 @@ int main(int, char**)
 
     return 0;
 }
+
