@@ -300,7 +300,7 @@ int main(int, char**)
 
     // Create window with graphics context
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Dear ImGui GLFW+Metal example", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PicKing", nullptr, nullptr);
     if (window == nullptr)
         return 1;
 
@@ -443,6 +443,7 @@ int main(int, char**)
 
             }
             {
+                ImGui::SetNextWindowSizeConstraints(ImVec2(200, 150), ImVec2(1000, 150));
                 ImGui::Begin("Quick Look");
                 ImGui::BeginChild("ScrollableRegion", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar) ;
                 float thumbnailSize = 64.0f; // 縮圖尺寸
@@ -478,7 +479,6 @@ int main(int, char**)
 
                     ImGui::SameLine(0.0f, padding);
                 }
-                ImGui::Dummy(ImVec2(200, 40));
                 ImGui::EndChild();
                 ImGui::End();
             }
