@@ -327,7 +327,13 @@ int main(int, char**)
     LoadAllImages(device, dir);
     sort(g_images.begin(), g_images.end(), comparison);
 
-    
+    std::map<std::string, ImVec2> wh_map;
+    wh_map.insert(std::pair<std::string, ImVec2>("Image Viewer", ImVec2(100, 200)));
+    wh_map.insert(std::pair<std::string, ImVec2>("Quick Viewer", ImVec2(100, 200)));
+    wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
+    wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
+
+ 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -357,11 +363,18 @@ int main(int, char**)
             ImGui_ImplMetal_NewFrame(renderPassDescriptor);
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
-
-            
+                
+            // 維護所有視窗長寬的陣列
+                        
             {
-                ImGui::Begin("Image Viewer");
-
+                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
+                ImGui::SetNextWindowSize(wh_map["Image Viewer"]);
+                ImGui::SetNextWindowPos(ImVec2(wh_map["Key Mapping"].x, 0));
+                ImGuiWindowFlags viewer_flags = ImGuiWindowFlags_NoMove |  
+                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
+                              ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGui::Begin("Image Viewer", nullptr, viewer_flags);
+                wh_map["Image Viewer"] = ImGui::GetWindowSize();
                 if (!g_images.empty()) {
                     auto& img = g_images[g_currentIndex];
                     
@@ -442,13 +455,19 @@ int main(int, char**)
                 ImGui::End();
 
             }
-            {
+            {   
                 ImGui::SetNextWindowSizeConstraints(ImVec2(200, 150), ImVec2(1000, 150));
-                ImGui::Begin("Quick Look");
+                ImGui::SetNextWindowSize(wh_map["Quick Look"]);
+                ImGui::SetNextWindowPos(ImVec2(0, wh_map["Key Mapping"].y));
+                ImGuiWindowFlags quickview_flags = ImGuiWindowFlags_NoMove | 
+                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
+                              ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGui::Begin("Quick Look", nullptr, quickview_flags);
+                wh_map["Quick Look"] = ImGui::GetWindowSize();
                 ImGui::BeginChild("ScrollableRegion", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar) ;
                 float thumbnailSize = 64.0f; // 縮圖尺寸
                 float padding = 5.0f;        // 縮圖間距
-                                
+                     
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
                 for (int i = 0; i < g_images.size(); i++) {
@@ -483,7 +502,15 @@ int main(int, char**)
                 ImGui::End();
             }
             {
-                ImGui::Begin("Description");
+                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
+                ImGui::SetNextWindowSize(wh_map["Description"]);
+                ImGuiWindowFlags description_flag = ImGuiWindowFlags_NoMove | 
+                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
+                              ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
+                ImGui::SetNextWindowPos(ImVec2(wh_map["Key Mapping"].x + wh_map["Image Viewer"].x, 0));
+                ImGui::Begin("Description", nullptr, description_flag);
+                wh_map["Description"] = ImGui::GetWindowSize();
                 auto& img = g_images[g_currentIndex];
                 ExifData* exif = exif_data_new_from_file(img.path.c_str());
                 if (exif)
@@ -535,9 +562,15 @@ int main(int, char**)
                 
                 ImGui::End();
             }
-            {
-                ImGui::Begin("Key → Tag Mapping");
-
+            {   
+                ImGui::SetNextWindowPos(ImVec2(0, 0));
+                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
+                ImGui::SetNextWindowSize(wh_map["Key Mapping"]);
+                ImGuiWindowFlags mapping_flags = ImGuiWindowFlags_NoMove |
+                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
+                              ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGui::Begin("Key Mapping", nullptr, mapping_flags);
+                wh_map["Key Mapping"] = ImGui::GetWindowSize();
                 // --- Existing Mappings ---
                 ImGui::Text("Current Mappings:");
                 ImGui::Separator();
@@ -573,14 +606,10 @@ int main(int, char**)
 
                 ImGui::End();
             }
-            {
-                ImGui::Begin("PicKing");
 
-                ImGui::Text("Current Mappings:");
-
-
-                ImGui::End();
-            }
+            wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
+            wh_map["Image Viewer"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
+            wh_map["Description"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
             // Rendering
             ImGui::Render();
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
