@@ -33,4 +33,5 @@ cd picking
 mkdir build && cd build
 cmake ..
 make
-./PicKing
+./build/main
+```

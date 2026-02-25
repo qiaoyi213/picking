@@ -332,7 +332,8 @@ int main(int, char**)
     wh_map.insert(std::pair<std::string, ImVec2>("Quick Viewer", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
-
+    static char keyNameBuffer[64] = "None"; 
+    static bool isWaitingForKey = false;
  
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -397,7 +398,6 @@ int main(int, char**)
                     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) {
                         g_currentIndex = (g_currentIndex+1) % g_images.size();
                     }
-
                     if (ImGui::IsKeyPressed(ImGuiKey_1)) {
                         std::cout<<"1"<<std::endl;
                         std::vector<std::string> tags = {"1"};
@@ -595,7 +595,7 @@ int main(int, char**)
 
                 ImGui::InputText("Key", keyBuf, IM_ARRAYSIZE(keyBuf));
                 ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
-
+                
                 if (ImGui::Button("Add Mapping")) {
                     if (strlen(keyBuf) > 0 && strlen(tagBuf) > 0) {
                         keyTagMappings[keyBuf] = tagBuf; // 直接新增或覆蓋
@@ -606,6 +606,34 @@ int main(int, char**)
 
                 ImGui::End();
             }
+            {
+                ImGui::Begin("TEST");
+                if(ImGui::Button("Press Me")) {
+                    isWaitingForKey = true;
+                } 
+
+                ImGui::End();
+            }
+
+            if (isWaitingForKey) {
+                // 獲取 ImGui 的 IO 結構以存取全域輸入狀態
+                ImGuiIO& io = ImGui::GetIO();
+
+                // 遍歷所有可能按鍵，尋找當前被按下的鍵
+                // ImGuiKey_NamedKey_BEGIN 到 ImGuiKey_NamedKey_END 涵蓋了所有具名的實體按鍵
+                for (int n = ImGuiKey_NamedKey_BEGIN; n < ImGuiKey_NamedKey_END; n++) {
+                    ImGuiKey key = (ImGuiKey)n;
+                    if (ImGui::IsKeyPressed(key)) {
+                        // 使用 ImGui 內建函數獲取按鍵名稱
+                        const char* name = ImGui::GetKeyName(key);
+                        snprintf(keyNameBuffer, sizeof(keyNameBuffer), "%s", name);
+                        // 偵測到按鍵後，關閉監聽模式
+                        isWaitingForKey = false;
+                        break;
+                    }
+                }
+            }
+
 
             wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
             wh_map["Image Viewer"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
