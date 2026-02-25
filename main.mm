@@ -334,7 +334,7 @@ int main(int, char**)
     wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
     static char keyNameBuffer[64] = "None"; 
     static bool isWaitingForKey = false;
- 
+    static bool isPress = false;
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -592,47 +592,51 @@ int main(int, char**)
                 // --- Add New Mapping ---
                 static char keyBuf[32] = "";
                 static char tagBuf[128] = "";
+                if(ImGui::Button("Press me to record key")) {
+                    isWaitingForKey = true;
+                    isPress = true;
+                }
+                
+                if (isWaitingForKey) {
+                    // 獲取 ImGui 的 IO 結構以存取全域輸入狀態
+                    ImGuiIO& io = ImGui::GetIO();
 
-                ImGui::InputText("Key", keyBuf, IM_ARRAYSIZE(keyBuf));
+                    // 遍歷所有可能按鍵，尋找當前被按下的鍵
+                    // ImGuiKey_NamedKey_BEGIN 到 ImGuiKey_NamedKey_END 涵蓋了所有具名的實體按鍵
+                    for (int n = ImGuiKey_NamedKey_BEGIN; n < ImGuiKey_NamedKey_END; n++) {
+                        ImGuiKey key = (ImGuiKey)n;
+                        if (ImGui::IsKeyPressed(key)) {
+                            // 使用 ImGui 內建函數獲取按鍵名稱
+                            const char* name = ImGui::GetKeyName(key);
+                            snprintf(keyNameBuffer, sizeof(keyNameBuffer), "%s", name);
+                            // 偵測到按鍵後，關閉監聽模式
+                            isWaitingForKey = false;
+                            break;
+                        }
+                    }
+                }
+
+                if(isPress && !isWaitingForKey) {
+                    std::cout<<"PRESS"<<keyNameBuffer<<std::endl; 
+                    isPress = false;
+                } 
+                if(strcmp(keyNameBuffer, "None"))
+                    ImGui::Text(keyNameBuffer); 
                 ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
                 
                 if (ImGui::Button("Add Mapping")) {
-                    if (strlen(keyBuf) > 0 && strlen(tagBuf) > 0) {
-                        keyTagMappings[keyBuf] = tagBuf; // 直接新增或覆蓋
+                    if (strcmp(keyNameBuffer, "None") && strlen(tagBuf) > 0) {
+                        keyTagMappings[keyNameBuffer] = tagBuf; // 直接新增或覆蓋
                         keyBuf[0] = '\0';
                         tagBuf[0] = '\0';
                     }
+                    strcpy(keyNameBuffer, "None");
                 }
 
                 ImGui::End();
             }
-            {
-                ImGui::Begin("TEST");
-                if(ImGui::Button("Press Me")) {
-                    isWaitingForKey = true;
-                } 
 
-                ImGui::End();
-            }
-
-            if (isWaitingForKey) {
-                // 獲取 ImGui 的 IO 結構以存取全域輸入狀態
-                ImGuiIO& io = ImGui::GetIO();
-
-                // 遍歷所有可能按鍵，尋找當前被按下的鍵
-                // ImGuiKey_NamedKey_BEGIN 到 ImGuiKey_NamedKey_END 涵蓋了所有具名的實體按鍵
-                for (int n = ImGuiKey_NamedKey_BEGIN; n < ImGuiKey_NamedKey_END; n++) {
-                    ImGuiKey key = (ImGuiKey)n;
-                    if (ImGui::IsKeyPressed(key)) {
-                        // 使用 ImGui 內建函數獲取按鍵名稱
-                        const char* name = ImGui::GetKeyName(key);
-                        snprintf(keyNameBuffer, sizeof(keyNameBuffer), "%s", name);
-                        // 偵測到按鍵後，關閉監聽模式
-                        isWaitingForKey = false;
-                        break;
-                    }
-                }
-            }
+            
 
 
             wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
