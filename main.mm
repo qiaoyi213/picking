@@ -38,8 +38,6 @@ static std::vector<ImageItem> g_images;
 static std::map<ImGuiKey, std::string> keyTagMappings;
 static int g_currentIndex = 0;
 
-
-
 id<MTLTexture> LoadExifThumbnailAsTexture(std::string path, id<MTLDevice> device) {
     // Step 1: 讀取 Exif
     ExifData *exifData = exif_data_new_from_file(path.c_str());
@@ -149,13 +147,6 @@ void LoadAllImages(id<MTLDevice> device, const std::string& folder) {
                 g_images.push_back(item);
                 
                 
-                // item.texture = LoadTextureFromFile(device, item.path);
-                /*
-                if (item.texture) {
-                    g_images.push_back(item);
-                }
-                */
-                std::cout<<"LOAD"<<std::endl;
             }
         }
     }
@@ -261,9 +252,10 @@ std::string browse_folder() {
     return path;
 }
 
-bool comparison(ImageItem i1, ImageItem i2) {
+bool img_path_cmp(ImageItem i1, ImageItem i2) {
     return i1.path < i2.path;
 }
+
 int main(int, char**)
 {
     // Setup Dear ImGui context
@@ -325,16 +317,16 @@ int main(int, char**)
     std::string dir = browse_folder();
 
     LoadAllImages(device, dir);
-    sort(g_images.begin(), g_images.end(), comparison);
-
+    sort(g_images.begin(), g_images.end(), img_path_cmp);
+    // 視窗的長寬
     std::map<std::string, ImVec2> wh_map;
     wh_map.insert(std::pair<std::string, ImVec2>("Image Viewer", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Quick Viewer", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
     static ImGuiKey keyBuffer = ImGuiKey_None;
-    static bool isWaitingForKey = false;
-    static bool isPress = false;
+    static bool isWaitingForKey = false; // 是否正在等待按鍵
+    static bool isPress = false; // 按鍵是否被按下
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -365,7 +357,6 @@ int main(int, char**)
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
                 
-            // 維護所有視窗長寬的陣列
                         
             {
                 ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
@@ -399,7 +390,6 @@ int main(int, char**)
                         g_currentIndex = (g_currentIndex+1) % g_images.size();
                     }
                     for(auto iter = keyTagMappings.begin(); iter != keyTagMappings.end(); iter ++) {
-                        // 改存 ImGuiKey 不要用字串
                         if(ImGui::IsKeyPressed(iter->first)){
                             std::cout<<iter->first<<"Press"<<std::endl;
                             std::vector<std::string> tags = {iter->second};
@@ -409,7 +399,6 @@ int main(int, char**)
                             }
                             g_currentIndex = (g_currentIndex+1)%g_images.size();
                         }
-
                     }
 
                 } else {
@@ -418,15 +407,6 @@ int main(int, char**)
 
                 ImGui::End();
 
-            }
-            {
-                ImGuiWindowFlags info_flags = ImGuiWindowFlags_NoMove |
-                                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-                                        ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::Begin("Information", nullptr, info_flags);
-
-                ImGui::Text("Tag:");
-                ImGui::End();
             }
             {   
                 ImGui::SetNextWindowSizeConstraints(ImVec2(200, 150), ImVec2(1000, 150));
@@ -582,8 +562,6 @@ int main(int, char**)
                             const char* name = ImGui::GetKeyName(key);
                             // key 是 ImGuiKey
                             keyBuffer = key;
-
-
                             // 偵測到按鍵後，關閉監聽模式
                             isWaitingForKey = false;
                             break;
@@ -595,7 +573,8 @@ int main(int, char**)
                     std::cout<<"PRESS"<<ImGui::GetKeyName(keyBuffer)<<std::endl; 
                     isPress = false;
                 } 
-                if( keyBuffer != ImGuiKey_None)
+
+                if(keyBuffer != ImGuiKey_None)
                     ImGui::Text(ImGui::GetKeyName(keyBuffer)); 
                 ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
                 
@@ -609,7 +588,6 @@ int main(int, char**)
 
                 ImGui::End();
             }
-
 
             wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
             wh_map["Image Viewer"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));

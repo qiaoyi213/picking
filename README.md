@@ -11,4 +11,6 @@ make & ./build/main
 
 - [ ] Docking window(migirate to docking branch)
 - [ ] Fixing the window resize issue 
+- [ ] More flexible window layout
+
 
