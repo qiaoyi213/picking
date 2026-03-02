@@ -35,7 +35,7 @@ struct ImageItem {
 };
 
 static std::vector<ImageItem> g_images;
-static std::map<std::string, std::string> keyTagMappings;
+static std::map<ImGuiKey, std::string> keyTagMappings;
 static int g_currentIndex = 0;
 
 
@@ -333,6 +333,7 @@ int main(int, char**)
     wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
     static char keyNameBuffer[64] = "None"; 
+    static ImGuiKey keyBuffer = ImGuiKey_None;
     static bool isWaitingForKey = false;
     static bool isPress = false;
     // Main loop
@@ -398,54 +399,18 @@ int main(int, char**)
                     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) {
                         g_currentIndex = (g_currentIndex+1) % g_images.size();
                     }
-                    if (ImGui::IsKeyPressed(ImGuiKey_1)) {
-                        std::cout<<"1"<<std::endl;
-                        std::vector<std::string> tags = {"1"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
+                    for(auto iter = keyTagMappings.begin(); iter != keyTagMappings.end(); iter ++) {
+                        // 改存 ImGuiKey 不要用字串
+                        if(ImGui::IsKeyPressed(iter->first)){
+                            std::cout<<iter->first<<"Press"<<std::endl;
+                            std::vector<std::string> tags = {iter->second};
+                            std::cout<< std::filesystem::absolute(img.path)<<std::endl;
+                            if(SetFinderTags(std::filesystem::absolute(img.path), tags)) {
+                                std::cout<< "Tags set successfully!\n";
+                            }
+                            g_currentIndex = (g_currentIndex+1)%g_images.size();
                         }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_2)) {
-                        std::vector<std::string> tags = {"2"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
-                        }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_3)) {
-                        std::vector<std::string> tags = {"3"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
-                        }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_4)) {
-                        std::vector<std::string> tags = {"4"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
-                        }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_5)) {
-                        std::vector<std::string> tags = {"5"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
-                        }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_6)) {
-                        std::vector<std::string> tags = {"6"};
-                        std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                        if (SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                            std::cout << "Tags set successfully!\n";
-                        }
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
+
                     }
 
                 } else {
@@ -454,6 +419,15 @@ int main(int, char**)
 
                 ImGui::End();
 
+            }
+            {
+                ImGuiWindowFlags info_flags = ImGuiWindowFlags_NoMove |
+                                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                                        ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGui::Begin("Information", nullptr, info_flags);
+
+                ImGui::Text("Tag:");
+                ImGui::End();
             }
             {   
                 ImGui::SetNextWindowSizeConstraints(ImVec2(200, 150), ImVec2(1000, 150));
@@ -577,7 +551,7 @@ int main(int, char**)
 
                 int idx = 0;
                 for (auto it = keyTagMappings.begin(); it != keyTagMappings.end();) {
-                    ImGui::Text("[%s] → %s", it->first.c_str(), it->second.c_str());
+                    ImGui::Text("[%s] → %s", ImGui::GetKeyName(it->first), it->second.c_str());
                     ImGui::SameLine();
                     if (ImGui::SmallButton(("Delete##" + std::to_string(idx)).c_str())) {
                         it = keyTagMappings.erase(it);  // 刪除後 iterator 自動移到下一個
@@ -609,6 +583,10 @@ int main(int, char**)
                             // 使用 ImGui 內建函數獲取按鍵名稱
                             const char* name = ImGui::GetKeyName(key);
                             snprintf(keyNameBuffer, sizeof(keyNameBuffer), "%s", name);
+                            // key 是 ImGuiKey
+                            keyBuffer = key;
+
+
                             // 偵測到按鍵後，關閉監聽模式
                             isWaitingForKey = false;
                             break;
@@ -620,13 +598,15 @@ int main(int, char**)
                     std::cout<<"PRESS"<<keyNameBuffer<<std::endl; 
                     isPress = false;
                 } 
-                if(strcmp(keyNameBuffer, "None"))
+                if(strcmp(keyNameBuffer, "None") && keyBuffer != 0)
                     ImGui::Text(keyNameBuffer); 
                 ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
                 
                 if (ImGui::Button("Add Mapping")) {
                     if (strcmp(keyNameBuffer, "None") && strlen(tagBuf) > 0) {
-                        keyTagMappings[keyNameBuffer] = tagBuf; // 直接新增或覆蓋
+                        //keyTagMappings[keyNameBuffer] = tagBuf; // 直接新增或覆蓋
+                        keyTagMappings[keyBuffer] = tagBuf;
+                        keyBuffer = ImGuiKey_None;
                         keyBuf[0] = '\0';
                         tagBuf[0] = '\0';
                     }
@@ -636,12 +616,11 @@ int main(int, char**)
                 ImGui::End();
             }
 
-            
-
 
             wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
             wh_map["Image Viewer"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
             wh_map["Description"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
+
             // Rendering
             ImGui::Render();
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
