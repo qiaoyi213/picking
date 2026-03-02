@@ -332,7 +332,6 @@ int main(int, char**)
     wh_map.insert(std::pair<std::string, ImVec2>("Quick Viewer", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
     wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
-    static char keyNameBuffer[64] = "None"; 
     static ImGuiKey keyBuffer = ImGuiKey_None;
     static bool isWaitingForKey = false;
     static bool isPress = false;
@@ -564,7 +563,6 @@ int main(int, char**)
                 ImGui::Separator();
 
                 // --- Add New Mapping ---
-                static char keyBuf[32] = "";
                 static char tagBuf[128] = "";
                 if(ImGui::Button("Press me to record key")) {
                     isWaitingForKey = true;
@@ -582,7 +580,6 @@ int main(int, char**)
                         if (ImGui::IsKeyPressed(key)) {
                             // 使用 ImGui 內建函數獲取按鍵名稱
                             const char* name = ImGui::GetKeyName(key);
-                            snprintf(keyNameBuffer, sizeof(keyNameBuffer), "%s", name);
                             // key 是 ImGuiKey
                             keyBuffer = key;
 
@@ -595,22 +592,19 @@ int main(int, char**)
                 }
 
                 if(isPress && !isWaitingForKey) {
-                    std::cout<<"PRESS"<<keyNameBuffer<<std::endl; 
+                    std::cout<<"PRESS"<<ImGui::GetKeyName(keyBuffer)<<std::endl; 
                     isPress = false;
                 } 
-                if(strcmp(keyNameBuffer, "None") && keyBuffer != 0)
-                    ImGui::Text(keyNameBuffer); 
+                if( keyBuffer != ImGuiKey_None)
+                    ImGui::Text(ImGui::GetKeyName(keyBuffer)); 
                 ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
                 
                 if (ImGui::Button("Add Mapping")) {
-                    if (strcmp(keyNameBuffer, "None") && strlen(tagBuf) > 0) {
-                        //keyTagMappings[keyNameBuffer] = tagBuf; // 直接新增或覆蓋
+                    if (keyBuffer != ImGuiKey_None && strlen(tagBuf) > 0) {
                         keyTagMappings[keyBuffer] = tagBuf;
                         keyBuffer = ImGuiKey_None;
-                        keyBuf[0] = '\0';
                         tagBuf[0] = '\0';
                     }
-                    strcpy(keyNameBuffer, "None");
                 }
 
                 ImGui::End();
