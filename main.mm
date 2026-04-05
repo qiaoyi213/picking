@@ -5,6 +5,9 @@
 #include <libexif/exif-data.h>
 
 #include <stdio.h>
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <vector>
 #include <string>
@@ -32,6 +35,8 @@ struct ImageItem {
     bool isLoaded;
     id<MTLTexture> thumbnail;
     id<MTLTexture> texture;
+    bool exifLoaded;
+    std::vector<std::pair<std::string, std::string>> exifEntries;
 };
 
 static std::vector<ImageItem> g_images;
@@ -135,18 +140,24 @@ id<MTLTexture> LoadTextureFromFile(id<MTLDevice> device, const std::string& file
 
 // 掃描資料夾
 void LoadAllImages(id<MTLDevice> device, const std::string& folder) {
+    g_images.clear();
+    g_currentIndex = 0;
+    if (folder.empty() || !std::filesystem::exists(folder)) {
+        return;
+    }
+
     for (auto& entry : std::filesystem::directory_iterator(folder)) {
         if (entry.is_regular_file()) {
             auto ext = entry.path().extension().string();
-            if (ext == ".jpg" || ext == ".JPG" || ext == ".jpeg") {
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".jpg" || ext == ".jpeg") {
                 ImageItem item;
                 item.path = entry.path().string();
-                std::cout<<"GET"<<std::endl;
                 item.isLoaded = false;
                 item.thumbnail = LoadExifThumbnailAsTexture(item.path, device);
+                item.texture = nil;
+                item.exifLoaded = false;
                 g_images.push_back(item);
-                
-                
             }
         }
     }
@@ -256,6 +267,103 @@ bool img_path_cmp(ImageItem i1, ImageItem i2) {
     return i1.path < i2.path;
 }
 
+static ImageItem* GetCurrentImage() {
+    if (g_images.empty()) return nullptr;
+    g_currentIndex = std::clamp(g_currentIndex, 0, (int)g_images.size() - 1);
+    return &g_images[g_currentIndex];
+}
+
+static std::string GetFileName(const std::string& path) {
+    return std::filesystem::path(path).filename().string();
+}
+
+static std::vector<std::string> GetFileTagsStd(const std::string& path) {
+    NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
+    NSArray<NSString *>* tags = GetFileTags(nsPath);
+    if (!tags) {
+        return {};
+    }
+
+    std::vector<std::string> out;
+    out.reserve([tags count]);
+    for (NSString* tag in tags) {
+        out.emplace_back([tag UTF8String]);
+    }
+    return out;
+}
+
+static bool AddFinderTag(const std::string& path, const std::string& tag) {
+    if (tag.empty()) return false;
+    std::vector<std::string> tags = GetFileTagsStd(path);
+    if (std::find(tags.begin(), tags.end(), tag) == tags.end()) {
+        tags.push_back(tag);
+    }
+    return SetFinderTags(std::filesystem::absolute(path).string(), tags);
+}
+
+static bool RemoveFinderTag(const std::string& path, const std::string& tag) {
+    std::vector<std::string> tags = GetFileTagsStd(path);
+    const auto newEnd = std::remove(tags.begin(), tags.end(), tag);
+    if (newEnd == tags.end()) {
+        return false;
+    }
+    tags.erase(newEnd, tags.end());
+    return SetFinderTags(std::filesystem::absolute(path).string(), tags);
+}
+
+static bool UpdateFinderTag(const std::string& path, const std::string& oldTag, const std::string& newTag) {
+    if (newTag.empty()) return false;
+    std::vector<std::string> tags = GetFileTagsStd(path);
+    auto it = std::find(tags.begin(), tags.end(), oldTag);
+    if (it == tags.end()) {
+        return false;
+    }
+
+    *it = newTag;
+    std::vector<std::string> deduped;
+    deduped.reserve(tags.size());
+    for (const auto& t : tags) {
+        if (std::find(deduped.begin(), deduped.end(), t) == deduped.end()) {
+            deduped.push_back(t);
+        }
+    }
+    return SetFinderTags(std::filesystem::absolute(path).string(), deduped);
+}
+
+static void EnsureImageTextureLoaded(id<MTLDevice> device, ImageItem& image) {
+    if (!image.isLoaded) {
+        image.texture = LoadTextureFromFile(device, image.path);
+        image.isLoaded = true;
+    }
+}
+
+static void EnsureExifLoaded(ImageItem& image) {
+    if (image.exifLoaded) return;
+    image.exifEntries.clear();
+    ExifData* exif = exif_data_new_from_file(image.path.c_str());
+    if (!exif) {
+        image.exifLoaded = true;
+        return;
+    }
+
+    for (int i = 0; i < EXIF_IFD_COUNT; i++) {
+        ExifContent* content = exif->ifd[i];
+        if (!content) continue;
+        for (unsigned int j = 0; j < content->count; j++) {
+            ExifEntry* entry = content->entries[j];
+            if (!entry) continue;
+            char value[1024];
+            exif_entry_get_value(entry, value, sizeof(value));
+            if (!*value) continue;
+            const char* tagName = exif_tag_get_name_in_ifd(entry->tag, exif_entry_get_ifd(entry));
+            if (!tagName) continue;
+            image.exifEntries.emplace_back(tagName, value);
+        }
+    }
+    exif_data_unref(exif);
+    image.exifLoaded = true;
+}
+
 int main(int, char**)
 {
     // Setup Dear ImGui context
@@ -318,15 +426,23 @@ int main(int, char**)
 
     LoadAllImages(device, dir);
     sort(g_images.begin(), g_images.end(), img_path_cmp);
-    // 視窗的長寬
-    std::map<std::string, ImVec2> wh_map;
-    wh_map.insert(std::pair<std::string, ImVec2>("Image Viewer", ImVec2(100, 200)));
-    wh_map.insert(std::pair<std::string, ImVec2>("Quick Viewer", ImVec2(100, 200)));
-    wh_map.insert(std::pair<std::string, ImVec2>("Key Mapping", ImVec2(100, 200)));
-    wh_map.insert(std::pair<std::string, ImVec2>("Description", ImVec2(100, 200)));
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 10.0f;
+    style.ChildRounding = 8.0f;
+    style.FrameRounding = 6.0f;
+    style.GrabRounding = 6.0f;
+    style.WindowPadding = ImVec2(12, 10);
+    style.FramePadding = ImVec2(10, 6);
+
     static ImGuiKey keyBuffer = ImGuiKey_None;
-    static bool isWaitingForKey = false; // 是否正在等待按鍵
-    static bool isPress = false; // 按鍵是否被按下
+    static bool isWaitingForKey = false;
+    static char tagBuf[128] = "";
+    static char mappingTagBuf[128] = "";
+    static int editingTagIndex = -1;
+    static char editTagBuf[128] = "";
+    std::string status = "Ready";
+
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -356,242 +472,337 @@ int main(int, char**)
             ImGui_ImplMetal_NewFrame(renderPassDescriptor);
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
-                
-                        
-            {
-                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
-                ImGui::SetNextWindowSize(wh_map["Image Viewer"]);
-                ImGui::SetNextWindowPos(ImVec2(wh_map["Key Mapping"].x, 0));
-                ImGuiWindowFlags viewer_flags = ImGuiWindowFlags_NoMove |  
-                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
-                              ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::Begin("Image Viewer", nullptr, viewer_flags);
-                wh_map["Image Viewer"] = ImGui::GetWindowSize();
-                if (!g_images.empty()) {
-                    auto& img = g_images[g_currentIndex];
-                    
-                    if(!img.isLoaded){
-                        img.texture = LoadTextureFromFile(device, img.path);
-                        img.isLoaded = true;
+            ImageItem* currentImage = GetCurrentImage();
+            if (isWaitingForKey) {
+                for (int n = ImGuiKey_NamedKey_BEGIN; n < ImGuiKey_NamedKey_END; n++) {
+                    ImGuiKey key = (ImGuiKey)n;
+                    if (ImGui::IsKeyPressed(key)) {
+                        keyBuffer = key;
+                        isWaitingForKey = false;
+                        status = std::string("Captured key: ") + ImGui::GetKeyName(keyBuffer);
+                        break;
                     }
-                    
-                    // 計算圖片大小與縮放比例，使得照片可以在 avail 範圍內正常顯示 
-                    ImGui::Text("File: %s", img.path.c_str());
-                    ImVec2 avail = ImGui::GetContentRegionAvail();
-                    float scale = std::min(avail.x/img.texture.width, avail.y/img.texture.height);
-                    ImGui::Image((ImTextureID)img.texture, ImVec2(img.texture.width*scale, img.texture.height*scale));
-                    // 當鍵盤有操作時，去查詢 Mapping 是否存在鍵位，並執行對應操作
+                }
+            }
 
-                    // 鍵盤操作
-                    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
-                        g_currentIndex = (g_currentIndex > 0) ? g_currentIndex - 1 : g_images.size()-1;
-                    }
-                    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) {
-                        g_currentIndex = (g_currentIndex+1) % g_images.size();
-                    }
-                    for(auto iter = keyTagMappings.begin(); iter != keyTagMappings.end(); iter ++) {
-                        if(ImGui::IsKeyPressed(iter->first)){
-                            std::cout<<iter->first<<"Press"<<std::endl;
-                            std::vector<std::string> tags = {iter->second};
-                            std::cout<< std::filesystem::absolute(img.path)<<std::endl;
-                            if(SetFinderTags(std::filesystem::absolute(img.path), tags)) {
-                                std::cout<< "Tags set successfully!\n";
-                            }
-                            g_currentIndex = (g_currentIndex+1)%g_images.size();
-                        }
-                    }
+            if (currentImage && !io.WantTextInput && !isWaitingForKey) {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
+                    g_currentIndex = (g_currentIndex > 0) ? g_currentIndex - 1 : (int)g_images.size() - 1;
+                    currentImage = GetCurrentImage();
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) {
+                    g_currentIndex = (g_currentIndex + 1) % (int)g_images.size();
+                    currentImage = GetCurrentImage();
+                }
 
+                for (const auto& mapping : keyTagMappings) {
+                    if (!ImGui::IsKeyPressed(mapping.first)) continue;
+                    if (AddFinderTag(currentImage->path, mapping.second)) {
+                        status = "Applied tag [" + mapping.second + "] to " + GetFileName(currentImage->path);
+                    } else {
+                        status = "Failed to apply tag.";
+                    }
+                    g_currentIndex = (g_currentIndex + 1) % (int)g_images.size();
+                    currentImage = GetCurrentImage();
+                    break;
+                }
+            }
+
+            const ImVec2 display = io.DisplaySize;
+            const float toolbarHeight = 66.0f;
+            const float statusHeight = 30.0f;
+            const float filmstripHeight = 148.0f;
+            const float leftPanelWidth = 320.0f;
+            const float rightPanelWidth = 340.0f;
+            const float spacing = 8.0f;
+
+            float workTop = toolbarHeight + spacing;
+            float workBottom = display.y - filmstripHeight - statusHeight - spacing * 2.0f;
+            float workHeight = std::max(120.0f, workBottom - workTop);
+            float centerX = leftPanelWidth + spacing;
+            float centerWidth = std::max(220.0f, display.x - leftPanelWidth - rightPanelWidth - spacing * 2.0f);
+
+            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(display.x, toolbarHeight));
+            ImGui::Begin("Toolbar", nullptr, panelFlags | ImGuiWindowFlags_NoTitleBar);
+            if (ImGui::Button("Open Folder")) {
+                std::string selectedDir = browse_folder();
+                if (!selectedDir.empty()) {
+                    dir = selectedDir;
+                    LoadAllImages(device, dir);
+                    sort(g_images.begin(), g_images.end(), img_path_cmp);
+                    currentImage = GetCurrentImage();
+                    status = "Loaded " + std::to_string(g_images.size()) + " images";
+                }
+            }
+            ImGui::SameLine();
+            ImGui::Text("Folder: %s", dir.empty() ? "(not selected)" : dir.c_str());
+            ImGui::SameLine();
+            ImGui::Separator();
+            ImGui::SameLine();
+            ImGui::Text("Total: %d", (int)g_images.size());
+
+            if (currentImage) {
+                ImGui::SameLine();
+                if (ImGui::Button("< Prev")) {
+                    g_currentIndex = (g_currentIndex > 0) ? g_currentIndex - 1 : (int)g_images.size() - 1;
+                    currentImage = GetCurrentImage();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Next >")) {
+                    g_currentIndex = (g_currentIndex + 1) % (int)g_images.size();
+                    currentImage = GetCurrentImage();
+                }
+                ImGui::SameLine();
+                ImGui::Text("Index: %d / %d", g_currentIndex + 1, (int)g_images.size());
+            }
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(0, workTop));
+            ImGui::SetNextWindowSize(ImVec2(leftPanelWidth, workHeight));
+            ImGui::Begin("Workflow", nullptr, panelFlags);
+            ImGui::Text("Tagging Workspace");
+            ImGui::Separator();
+            if (!currentImage) {
+                ImGui::TextWrapped("Please open a folder with JPG/JPEG images.");
+            } else {
+                ImGui::TextWrapped("%s", GetFileName(currentImage->path).c_str());
+                ImGui::TextDisabled("Use Left/Right arrows to navigate quickly.");
+                ImGui::Spacing();
+
+                bool addByEnter = ImGui::InputTextWithHint("##tag-input", "Type a tag then press Enter", tagBuf, IM_ARRAYSIZE(tagBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+                bool addFromInput = ImGui::Button("Add Tag");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Append this Finder tag to current image");
+                if ((addByEnter || addFromInput) && std::strlen(tagBuf) > 0) {
+                    if (AddFinderTag(currentImage->path, tagBuf)) {
+                        status = std::string("Applied tag [") + tagBuf + "]";
+                        tagBuf[0] = '\0';
+                    } else {
+                        status = "Failed to apply tag.";
+                    }
+                }
+
+                ImGui::Spacing();
+                ImGui::SeparatorText("Current Finder Tags");
+                std::vector<std::string> currentTags = GetFileTagsStd(currentImage->path);
+                if (currentTags.empty()) {
+                    editingTagIndex = -1;
+                    ImGui::TextDisabled("No tags yet");
                 } else {
-                    ImGui::Text("No images found in ./images");
-                }
-
-                ImGui::End();
-
-            }
-            {   
-                ImGui::SetNextWindowSizeConstraints(ImVec2(200, 150), ImVec2(1000, 150));
-                ImGui::SetNextWindowSize(wh_map["Quick Look"]);
-                ImGui::SetNextWindowPos(ImVec2(0, wh_map["Key Mapping"].y));
-                ImGuiWindowFlags quickview_flags = ImGuiWindowFlags_NoMove | 
-                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
-                              ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::Begin("Quick Look", nullptr, quickview_flags);
-                wh_map["Quick Look"] = ImGui::GetWindowSize();
-                ImGui::BeginChild("ScrollableRegion", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar) ;
-                float thumbnailSize = 64.0f; // 縮圖尺寸
-                float padding = 5.0f;        // 縮圖間距
-                     
-                ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-                for (int i = 0; i < g_images.size(); i++) {
-                    auto& img = g_images[i];
-                    if (!img.thumbnail) continue;
-
-                    ImVec2 pos = ImGui::GetCursorScreenPos(); // 縮圖左上角
-                    // 計算縮圖縮放比例
-                    float scale = std::min(thumbnailSize/img.thumbnail.width, thumbnailSize/img.thumbnail.height);
-                    ImGui::Image((ImTextureID)img.thumbnail, ImVec2(img.thumbnail.width*scale, img.thumbnail.height*scale));
-
-                    // 點擊選中
-                    if (ImGui::IsItemClicked()) {
-                        g_currentIndex = i;
+                    if (editingTagIndex >= (int)currentTags.size()) {
+                        editingTagIndex = -1;
                     }
+                    for (int i = 0; i < (int)currentTags.size(); ++i) {
+                        const std::string& t = currentTags[i];
+                        ImGui::PushID(i);
 
-                    // 如果是當前選中的圖，畫外框
-                    if (i == g_currentIndex) {
-                        draw_list->AddRect(
-                            pos,
-                            ImVec2(pos.x + thumbnailSize, pos.y + thumbnailSize),
-                            IM_COL32(255, 0, 0, 255),  // 紅色
-                            0.0f,                       // 圓角
-                            0,                          // 角類型
-                            3.0f                        // 線寬
-                        );
-                    }
+                        if (editingTagIndex == i) {
+                            ImGui::SetNextItemWidth(150.0f);
+                            bool commitByEnter = ImGui::InputText("##edit-tag", editTagBuf, IM_ARRAYSIZE(editTagBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+                            ImGui::SameLine();
+                            bool commitByButton = ImGui::SmallButton("Save");
+                            ImGui::SameLine();
+                            bool cancelEdit = ImGui::SmallButton("Cancel");
 
-                    ImGui::SameLine(0.0f, padding);
-                }
-                ImGui::EndChild();
-                ImGui::End();
-            }
-            {
-                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
-                ImGui::SetNextWindowSize(wh_map["Description"]);
-                ImGuiWindowFlags description_flag = ImGuiWindowFlags_NoMove | 
-                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
-                              ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
-                ImGui::SetNextWindowPos(ImVec2(wh_map["Key Mapping"].x + wh_map["Image Viewer"].x, 0));
-                ImGui::Begin("Description", nullptr, description_flag);
-                wh_map["Description"] = ImGui::GetWindowSize();
-                auto& img = g_images[g_currentIndex];
-                ExifData* exif = exif_data_new_from_file(img.path.c_str());
-                if (exif)
-                {
-                    ImGui::SeparatorText("EXIF Metadata");
-
-                    for (int i = 0; i < EXIF_IFD_COUNT; i++)
-                    {
-                        ExifContent* content = exif->ifd[i];
-                        if (!content) continue;
-
-                        for (unsigned int j = 0; j < content->count; j++)
-                        {
-                            ExifEntry* entry = content->entries[j];
-                            if (!entry) continue;
-
-                            char value[1024];
-                            exif_entry_get_value(entry, value, sizeof(value));
-                            if (*value)
-                            {
-                                ImGui::Text("%s: %s",
-                                    exif_tag_get_name_in_ifd(entry->tag, exif_entry_get_ifd(entry)),
-                                    value);
+                            if ((commitByEnter || commitByButton) && std::strlen(editTagBuf) > 0) {
+                                if (UpdateFinderTag(currentImage->path, t, editTagBuf)) {
+                                    status = "Updated tag [" + t + "] -> [" + std::string(editTagBuf) + "]";
+                                } else {
+                                    status = "Failed to update tag.";
+                                }
+                                editingTagIndex = -1;
+                                editTagBuf[0] = '\0';
+                            } else if (cancelEdit) {
+                                editingTagIndex = -1;
+                                editTagBuf[0] = '\0';
+                            }
+                        } else {
+                            ImGui::Text("%s", t.c_str());
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Edit")) {
+                                editingTagIndex = i;
+                                std::strncpy(editTagBuf, t.c_str(), IM_ARRAYSIZE(editTagBuf) - 1);
+                                editTagBuf[IM_ARRAYSIZE(editTagBuf) - 1] = '\0';
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Delete")) {
+                                if (RemoveFinderTag(currentImage->path, t)) {
+                                    status = "Deleted tag [" + t + "]";
+                                } else {
+                                    status = "Failed to delete tag.";
+                                }
+                                if (editingTagIndex == i) {
+                                    editingTagIndex = -1;
+                                    editTagBuf[0] = '\0';
+                                }
                             }
                         }
-                    }
-                    exif_data_unref(exif);
-                }
-                else
-                {
-                    ImGui::Text("No EXIF data found.");
-                }
-                ImGui::SeparatorText("Finder Tags");
 
-                NSString* nsPath = [NSString stringWithUTF8String:img.path.c_str()];
-                NSArray<NSString *>* tags = GetFileTags(nsPath);
-
-                if (tags && [tags count] > 0)
-                {
-                    for (NSString* tag in tags)
-                    {
-                        ImGui::BulletText("%s", [tag UTF8String]);
+                        ImGui::PopID();
                     }
                 }
-                else
-                {
-                    ImGui::Text("No Finder tags.");
-                }
-                
-                ImGui::End();
-            }
-            {   
-                ImGui::SetNextWindowPos(ImVec2(0, 0));
-                ImGui::SetNextWindowSizeConstraints(ImVec2(100, 100), ImVec2(1000, 1000));
-                ImGui::SetNextWindowSize(wh_map["Key Mapping"]);
-                ImGuiWindowFlags mapping_flags = ImGuiWindowFlags_NoMove |
-                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | 
-                              ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::Begin("Key Mapping", nullptr, mapping_flags);
-                wh_map["Key Mapping"] = ImGui::GetWindowSize();
-                // --- Existing Mappings ---
-                ImGui::Text("Current Mappings:");
-                ImGui::Separator();
 
-                int idx = 0;
+                ImGui::Spacing();
+                ImGui::SeparatorText("Key To Tag Mapping");
+                int mappingIndex = 0;
                 for (auto it = keyTagMappings.begin(); it != keyTagMappings.end();) {
-                    ImGui::Text("[%s] → %s", ImGui::GetKeyName(it->first), it->second.c_str());
+                    ImGui::PushID(mappingIndex++);
+                    ImGui::Text("[%s] -> %s", ImGui::GetKeyName(it->first), it->second.c_str());
                     ImGui::SameLine();
-                    if (ImGui::SmallButton(("Delete##" + std::to_string(idx)).c_str())) {
-                        it = keyTagMappings.erase(it);  // 刪除後 iterator 自動移到下一個
+                    if (ImGui::SmallButton("Delete")) {
+                        it = keyTagMappings.erase(it);
                     } else {
                         ++it;
                     }
-                    idx++;
+                    ImGui::PopID();
                 }
 
-                ImGui::Separator();
-
-                // --- Add New Mapping ---
-                static char tagBuf[128] = "";
-                if(ImGui::Button("Press me to record key")) {
+                ImGui::Spacing();
+                if (ImGui::Button(isWaitingForKey ? "Press any key..." : "Capture Shortcut Key")) {
                     isWaitingForKey = true;
-                    isPress = true;
                 }
-                
-                if (isWaitingForKey) {
-                    // 獲取 ImGui 的 IO 結構以存取全域輸入狀態
-                    ImGuiIO& io = ImGui::GetIO();
+                if (keyBuffer != ImGuiKey_None) {
+                    ImGui::SameLine();
+                    ImGui::Text("Selected: %s", ImGui::GetKeyName(keyBuffer));
+                }
+                ImGui::InputTextWithHint("##mapping-tag", "Tag for this shortcut", mappingTagBuf, IM_ARRAYSIZE(mappingTagBuf));
+                if (ImGui::Button("Add Mapping") && keyBuffer != ImGuiKey_None && std::strlen(mappingTagBuf) > 0) {
+                    keyTagMappings[keyBuffer] = mappingTagBuf;
+                    status = std::string("Mapped [") + ImGui::GetKeyName(keyBuffer) + "] -> " + mappingTagBuf;
+                    keyBuffer = ImGuiKey_None;
+                    mappingTagBuf[0] = '\0';
+                }
+            }
+            ImGui::End();
 
-                    // 遍歷所有可能按鍵，尋找當前被按下的鍵
-                    // ImGuiKey_NamedKey_BEGIN 到 ImGuiKey_NamedKey_END 涵蓋了所有具名的實體按鍵
-                    for (int n = ImGuiKey_NamedKey_BEGIN; n < ImGuiKey_NamedKey_END; n++) {
-                        ImGuiKey key = (ImGuiKey)n;
-                        if (ImGui::IsKeyPressed(key)) {
-                            // 使用 ImGui 內建函數獲取按鍵名稱
-                            const char* name = ImGui::GetKeyName(key);
-                            // key 是 ImGuiKey
-                            keyBuffer = key;
-                            // 偵測到按鍵後，關閉監聽模式
-                            isWaitingForKey = false;
-                            break;
-                        }
+            ImGui::SetNextWindowPos(ImVec2(centerX, workTop));
+            ImGui::SetNextWindowSize(ImVec2(centerWidth, workHeight));
+            ImGui::Begin("Preview", nullptr, panelFlags);
+            if (!currentImage) {
+                ImGui::TextWrapped("No image available.");
+            } else {
+                EnsureImageTextureLoaded(device, *currentImage);
+                ImGui::TextWrapped("%s", currentImage->path.c_str());
+                ImGui::Separator();
+                if (currentImage->texture) {
+                    float imgW = (float)currentImage->texture.width;
+                    float imgH = (float)currentImage->texture.height;
+                    ImVec2 avail = ImGui::GetContentRegionAvail();
+                    float scale = std::min(avail.x / imgW, avail.y / imgH);
+                    if (scale > 0.0f) {
+                        ImVec2 displaySize(imgW * scale, imgH * scale);
+                        float xOffset = std::max(0.0f, (avail.x - displaySize.x) * 0.5f);
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + xOffset);
+                        ImGui::Image((ImTextureID)currentImage->texture, displaySize);
+                    }
+                } else {
+                    ImGui::TextDisabled("Image load failed.");
+                }
+            }
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(centerX + centerWidth + spacing, workTop));
+            ImGui::SetNextWindowSize(ImVec2(rightPanelWidth, workHeight));
+            ImGui::Begin("Metadata", nullptr, panelFlags);
+            if (!currentImage) {
+                ImGui::TextDisabled("No metadata.");
+            } else {
+                EnsureExifLoaded(*currentImage);
+                ImGui::Text("EXIF");
+                ImGui::Separator();
+                ImGui::BeginChild("exif-list", ImVec2(0, 0), true);
+                if (currentImage->exifEntries.empty()) {
+                    ImGui::TextDisabled("No EXIF data found.");
+                } else {
+                    for (const auto& kv : currentImage->exifEntries) {
+                        ImGui::TextWrapped("%s: %s", kv.first.c_str(), kv.second.c_str());
                     }
                 }
+                ImGui::EndChild();
+            }
+            ImGui::End();
 
-                if(isPress && !isWaitingForKey) {
-                    std::cout<<"PRESS"<<ImGui::GetKeyName(keyBuffer)<<std::endl; 
-                    isPress = false;
-                } 
+            ImGui::SetNextWindowPos(ImVec2(0, display.y - statusHeight - filmstripHeight));
+            ImGui::SetNextWindowSize(ImVec2(display.x, filmstripHeight));
+            ImGui::Begin("Filmstrip", nullptr, panelFlags);
+            ImGui::BeginChild("filmstrip-scroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            const float thumbSize = 92.0f;
+            const float thumbGap = 8.0f;
 
-                if(keyBuffer != ImGuiKey_None)
-                    ImGui::Text(ImGui::GetKeyName(keyBuffer)); 
-                ImGui::InputText("Tag", tagBuf, IM_ARRAYSIZE(tagBuf));
-                
-                if (ImGui::Button("Add Mapping")) {
-                    if (keyBuffer != ImGuiKey_None && strlen(tagBuf) > 0) {
-                        keyTagMappings[keyBuffer] = tagBuf;
-                        keyBuffer = ImGuiKey_None;
-                        tagBuf[0] = '\0';
-                    }
+            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) {
+                const float scrollStep = thumbSize + thumbGap;
+                float delta = 0.0f;
+                if (io.MouseWheel != 0.0f) {
+                    delta += -io.MouseWheel * scrollStep;
                 }
-
-                ImGui::End();
+                if (io.MouseWheelH != 0.0f) {
+                    delta += -io.MouseWheelH * scrollStep;
+                }
+                if (delta != 0.0f) {
+                    ImGui::SetScrollX(ImGui::GetScrollX() + delta);
+                }
             }
 
-            wh_map["Key Mapping"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
-            wh_map["Image Viewer"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
-            wh_map["Description"].y = std::max(wh_map["Key Mapping"].y, std::max(wh_map["Image Viewer"].y, wh_map["Description"].y));
+            for (int i = 0; i < (int)g_images.size(); i++) {
+                auto& img = g_images[i];
+                ImGui::PushID(i);
+
+                ImVec2 topLeft = ImGui::GetCursorScreenPos();
+                ImGui::BeginGroup();
+                ImGui::InvisibleButton("thumb-hit", ImVec2(thumbSize, thumbSize));
+                if (ImGui::IsItemClicked()) {
+                    g_currentIndex = i;
+                    currentImage = GetCurrentImage();
+                }
+
+                id<MTLTexture> drawTex = img.thumbnail;
+                if (!drawTex) {
+                    if (!img.isLoaded) {
+                        EnsureImageTextureLoaded(device, img);
+                    }
+                    drawTex = img.texture;
+                }
+
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(topLeft, ImVec2(topLeft.x + thumbSize, topLeft.y + thumbSize), IM_COL32(35, 35, 35, 255), 4.0f);
+                if (drawTex) {
+                    float tw = (float)drawTex.width;
+                    float th = (float)drawTex.height;
+                    float tscale = std::min(thumbSize / tw, thumbSize / th);
+                    ImVec2 drawSize(tw * tscale, th * tscale);
+                    ImVec2 drawPos(topLeft.x + (thumbSize - drawSize.x) * 0.5f, topLeft.y + (thumbSize - drawSize.y) * 0.5f);
+                    drawList->AddImage((ImTextureID)drawTex, drawPos, ImVec2(drawPos.x + drawSize.x, drawPos.y + drawSize.y));
+                } else {
+                    drawList->AddText(ImVec2(topLeft.x + 28.0f, topLeft.y + 36.0f), IM_COL32(180, 180, 180, 255), "N/A");
+                }
+
+                if (i == g_currentIndex) {
+                    drawList->AddRect(topLeft, ImVec2(topLeft.x + thumbSize, topLeft.y + thumbSize), IM_COL32(255, 124, 72, 255), 4.0f, 0, 3.0f);
+                } else {
+                    drawList->AddRect(topLeft, ImVec2(topLeft.x + thumbSize, topLeft.y + thumbSize), IM_COL32(92, 92, 92, 255), 4.0f, 0, 1.0f);
+                }
+
+                ImGui::SetCursorScreenPos(ImVec2(topLeft.x, topLeft.y + thumbSize + 2.0f));
+                ImGui::TextDisabled("%d", i + 1);
+                ImGui::EndGroup();
+
+                if (i + 1 < (int)g_images.size()) {
+                    ImGui::SameLine(0.0f, thumbGap);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(0, display.y - statusHeight));
+            ImGui::SetNextWindowSize(ImVec2(display.x, statusHeight));
+            ImGui::Begin("Status", nullptr, panelFlags | ImGuiWindowFlags_NoTitleBar);
+            ImGui::Text("Hints: Left/Right = Navigate | Shortcut Key = Apply mapped tag and jump next");
+            ImGui::SameLine();
+            ImGui::TextDisabled(" | %s", status.c_str());
+            ImGui::End();
 
             // Rendering
             ImGui::Render();
@@ -615,4 +826,3 @@ int main(int, char**)
 
     return 0;
 }
-
